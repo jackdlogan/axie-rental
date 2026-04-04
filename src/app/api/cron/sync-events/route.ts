@@ -9,7 +9,7 @@ const publicClient = createPublicClient({
   transport: http(),
 });
 
-const BLOCK_RANGE = 1000n;
+const BLOCK_RANGE = 499n;
 
 function isAuthorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
