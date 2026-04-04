@@ -4,6 +4,8 @@ import { buttonVariants } from "@/lib/button-variants";
 import { cn } from "@/lib/utils";
 import { prisma } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 export default async function HomePage() {
   const [activeListings, completedRentals] = await Promise.all([
     prisma.listing.count({ where: { status: "ACTIVE" } }),
