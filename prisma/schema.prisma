@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  walletAddress String   @unique
+  roninName     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  listings          Listing[]
+  rentalsAsOwner    Rental[]  @relation("OwnerRentals")
+  rentalsAsBorrower Rental[]  @relation("BorrowerRentals")
+}
+
+enum ListingStatus {
+  ACTIVE
+  RENTED
+  PAUSED
+  CANCELLED
+}
+
+model Listing {
+  id             String        @id @default(cuid())
+  axieId         String
+  axieClass      String?
+  axieName       String?
+  axieGenes      String?
+  pricePerDay    Decimal       @db.Decimal(18, 6)
+  minDays        Int           @default(1)
+  maxDays        Int           @default(30)
+  availableFrom  DateTime      @default(now())
+  availableUntil DateTime?
+  status         ListingStatus @default(ACTIVE)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id])
+
+  rentals Rental[]
+
+  @@unique([axieId, ownerId])
+  @@index([status])
+  @@index([axieClass])
+}
+
+enum RentalStatus {
+  PENDING_PAYMENT
+  PAYMENT_DEPOSITED
+  DELEGATION_CONFIRMED
+  ACTIVE
+  COMPLETED
+  REFUNDED
+  CANCELLED
+}
+
+model Rental {
+  id                 String       @id @default(cuid())
+  totalPrice         Decimal      @db.Decimal(18, 6)
+  rentalDays         Int
+  startDate          DateTime?
+  endDate            DateTime?
+  escrowTxHash       String?
+  delegationTxHash   String?
+  releaseTxHash      String?
+  refundTxHash       String?
+  delegationDeadline DateTime?
+  status             RentalStatus @default(PENDING_PAYMENT)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  listingId  String
+  listing    Listing @relation(fields: [listingId], references: [id])
+  ownerId    String
+  owner      User    @relation("OwnerRentals", fields: [ownerId], references: [id])
+  borrowerId String
+  borrower   User    @relation("BorrowerRentals", fields: [borrowerId], references: [id])
+
+  @@index([status])
+  @@index([ownerId])
+  @@index([borrowerId])
+}
