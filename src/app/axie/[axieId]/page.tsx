@@ -20,6 +20,7 @@ interface AxieDetail {
   newGenes: string;
   parts: { id: string; name: string; class: string; type: string }[];
   stats: { hp: number; speed: number; skill: number; morale: number };
+  fortuneSlips?: { total: number; potentialAmount: number };
 }
 
 interface ListingDetail {
@@ -116,6 +117,27 @@ export default function AxieDetailPage() {
                 </div>
               </CardContent>
             </Card>
+          )}
+
+          {axie?.fortuneSlips != null && (
+            <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-[#E7E5E4] bg-[#F5F5F4]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="https://cdn.axieinfinity.com/marketplace-website/asset-icon/fortune-slip.png"
+                alt="Fortune Slip"
+                width={32}
+                height={32}
+                className="shrink-0"
+              />
+              <div>
+                <p className="text-sm font-semibold text-[#0D0C0B]">
+                  {axie.fortuneSlips.total} Fortune Slip{axie.fortuneSlips.total !== 1 ? "s" : ""}
+                </p>
+                <p className="text-xs text-[#78716C]">
+                  ~{axie.fortuneSlips.potentialAmount} potential
+                </p>
+              </div>
+            </div>
           )}
 
           {axie?.parts && axie.parts.length > 0 && (

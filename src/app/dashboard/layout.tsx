@@ -23,16 +23,16 @@ export default function DashboardLayout({
   return (
     <div className="container mx-auto px-4 py-6 md:py-8">
       {/* Mobile: horizontal scrollable tab bar */}
-      <nav className="md:hidden flex gap-1 overflow-x-auto pb-4 mb-6 border-b border-border scrollbar-hide -mx-4 px-4">
+      <nav className="md:hidden flex gap-1.5 overflow-x-auto pb-4 mb-6 border-b border-[#E7E5E4] scrollbar-hide -mx-4 px-4">
         {navItems.map((item) => (
           <Link
             key={item.href}
             href={item.href}
             className={cn(
-              "shrink-0 px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors duration-150",
+              "shrink-0 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors duration-150",
               pathname === item.href
-                ? "bg-primary text-primary-foreground font-medium"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                ? "bg-[#0D0C0B] text-white"
+                : "border border-[#E7E5E4] text-[#78716C] hover:text-[#0D0C0B] hover:border-[#0D0C0B]"
             )}
           >
             {item.label}
@@ -43,7 +43,7 @@ export default function DashboardLayout({
       <div className="flex gap-8">
         {/* Desktop sidebar */}
         <aside className="hidden md:flex flex-col w-52 shrink-0">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground mb-4 px-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#A8A29E] mb-4 px-3">
             Navigation
           </p>
           <nav className="space-y-0.5">
@@ -52,10 +52,10 @@ export default function DashboardLayout({
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center px-3 py-2 text-sm transition-colors duration-150 cursor-pointer rounded-sm",
+                  "flex items-center px-3 py-2 text-sm transition-colors duration-150 cursor-pointer rounded-lg",
                   pathname === item.href
-                    ? "bg-primary text-primary-foreground font-medium"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                    ? "bg-[#F5F5F4] text-[#0D0C0B] font-semibold"
+                    : "text-[#78716C] hover:text-[#0D0C0B] hover:bg-[#F5F5F4]"
                 )}
               >
                 {item.label}

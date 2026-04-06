@@ -76,7 +76,12 @@ export function ConnectButton() {
 
   if (isConnected && address) {
     return (
-      <Button onClick={handleSignIn} disabled={isSigningIn} size="sm">
+      <Button
+        onClick={handleSignIn}
+        disabled={isSigningIn}
+        size="sm"
+        className="bg-[#F97316] text-white hover:bg-[#EA6C0A] font-semibold border-0"
+      >
         {isSigningIn ? "Signing in..." : "Sign In"}
       </Button>
     );
@@ -89,6 +94,7 @@ export function ConnectButton() {
       size="sm"
       onClick={() => connector && connect({ connector })}
       disabled={!connector}
+      className="bg-[#F97316] text-white hover:bg-[#EA6C0A] font-semibold border-0"
     >
       Connect Ronin Wallet
     </Button>

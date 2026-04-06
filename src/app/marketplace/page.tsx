@@ -2,18 +2,9 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import Link from "next/link";
-import { buttonVariants } from "@/lib/button-variants";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { AxieImage } from "@/components/axie/axie-image";
@@ -54,41 +45,44 @@ export default function MarketplacePage() {
   return (
     <div className="container mx-auto px-4 py-10">
       {/* Page header */}
-      <div className="flex items-baseline gap-4 mb-8 border-b border-border pb-4">
-        <h1 className="font-heading text-3xl font-700 tracking-tight">Marketplace</h1>
-        <span className="text-xs uppercase tracking-widest text-muted-foreground">
-          Available Axies
-        </span>
+      <div className="mb-8">
+        <h1 className="text-3xl font-extrabold text-[#0D0C0B] tracking-[-0.03em] mb-1">Marketplace</h1>
+        <p className="text-sm text-[#78716C]">Browse available Axies for rent on Ronin</p>
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 mb-8 flex-wrap">
+      <div className="flex flex-col gap-4 mb-8">
         <Input
           placeholder="Search by Axie ID or name..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="max-w-xs bg-card border-border"
+          className="max-w-xs bg-[#F5F5F4] border-[#E7E5E4] focus:border-[#F97316] focus:ring-[#F97316]"
         />
-        <Select value={classFilter} onValueChange={(v) => setClassFilter(v ?? "All")}>
-          <SelectTrigger className="w-36 bg-card border-border cursor-pointer">
-            <SelectValue placeholder="Class" />
-          </SelectTrigger>
-          <SelectContent className="bg-card border-border">
-            {AXIE_CLASSES.map((c) => (
-              <SelectItem key={c} value={c} className="cursor-pointer">
-                {c}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Pill filter buttons */}
+        <div className="flex gap-2 flex-wrap">
+          {AXIE_CLASSES.map((c) => (
+            <button
+              key={c}
+              onClick={() => setClassFilter(c)}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer",
+                classFilter === c
+                  ? "bg-[#0D0C0B] text-white"
+                  : "border border-[#E7E5E4] text-[#78716C] hover:border-[#0D0C0B] hover:text-[#0D0C0B]"
+              )}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
       </div>
 
       {isLoading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {Array.from({ length: 8 }).map((_, i) => (
-            <Card key={i} className="overflow-hidden border-border bg-card">
+            <Card key={i} className="overflow-hidden border-[#E7E5E4] bg-white rounded-2xl">
               <CardHeader className="p-0">
-                <Skeleton className="h-44 w-full rounded-none" />
+                <Skeleton className="h-40 w-full rounded-none" />
               </CardHeader>
               <CardContent className="p-4 space-y-2">
                 <Skeleton className="h-4 w-24" />
@@ -100,49 +94,47 @@ export default function MarketplacePage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {data?.listings?.length === 0 && (
-            <p className="col-span-full text-center text-muted-foreground py-16 font-heading text-lg">
+            <p className="col-span-full text-center text-[#78716C] py-16 text-lg">
               No listings found. Be the first to list an Axie!
             </p>
           )}
           {data?.listings?.map((listing) => (
             <Card
               key={listing.id}
-              className="overflow-hidden border-border bg-card hover:paper-shadow transition-shadow duration-200 cursor-pointer group"
+              className="overflow-hidden bg-white border border-[#E7E5E4] rounded-2xl hover:shadow-md transition-shadow duration-200 cursor-pointer group"
             >
               <CardHeader className="p-0">
-                <div className="h-44 bg-muted flex items-center justify-center overflow-hidden">
+                <div className="bg-[#F5F5F4] h-40 flex items-center justify-center overflow-hidden relative">
                   <AxieImage
                     axieId={listing.axieId}
                     name={listing.axieName ?? undefined}
                     width={180}
-                    height={176}
+                    height={160}
                     className="group-hover:scale-105 transition-transform duration-300"
                   />
+                  {listing.axieClass && (
+                    <span className="absolute top-2 right-2 bg-[#0D0C0B] text-white text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-md">
+                      {listing.axieClass}
+                    </span>
+                  )}
                 </div>
               </CardHeader>
               <CardContent className="p-4">
-                <div className="flex items-start justify-between mb-2 gap-2">
-                  <h3 className="font-heading font-600 text-base leading-tight truncate">
-                    {listing.axieName || `Axie #${listing.axieId}`}
-                  </h3>
-                  {listing.axieClass && (
-                    <Badge variant="secondary" className="shrink-0 text-xs">
-                      {listing.axieClass}
-                    </Badge>
-                  )}
-                </div>
-                <p className="font-heading text-xl font-700 text-foreground">
+                <h3 className="font-semibold text-base text-[#0D0C0B] leading-tight truncate mb-2">
+                  {listing.axieName || `Axie #${listing.axieId}`}
+                </h3>
+                <p className="font-extrabold text-xl text-[#0D0C0B] tracking-tight">
                   {listing.pricePerDay}{" "}
-                  <span className="text-sm font-body font-400 text-muted-foreground">USDC/day</span>
+                  <span className="text-sm font-normal text-[#78716C]">USDC/day</span>
                 </p>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-[#78716C] mt-1">
                   {listing.minDays}–{listing.maxDays} days
                 </p>
               </CardContent>
               <CardFooter className="p-4 pt-0">
                 <Link
                   href={`/axie/${listing.axieId}`}
-                  className={cn(buttonVariants({ variant: "outline" }), "w-full justify-center cursor-pointer text-sm")}
+                  className="w-full inline-flex items-center justify-center px-4 py-2 rounded-lg bg-[#F97316] text-white font-semibold text-sm hover:bg-[#EA6C0A] transition-colors"
                 >
                   View Details
                 </Link>

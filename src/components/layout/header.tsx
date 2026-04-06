@@ -44,23 +44,26 @@ export function Header() {
   ];
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-[#FDFBF7]/95 backdrop-blur supports-[backdrop-filter]:bg-[#FDFBF7]/80">
+    <header className="bg-[#0D0C0B] border-b border-[#1C1B19] sticky top-0 z-50">
       <div className="container mx-auto flex h-14 items-center justify-between px-4">
         <div className="flex items-center gap-8">
-          <Link href="/" className="font-heading text-xl font-700 tracking-tight text-foreground">
-            Axie Rental
+          <Link href="/" className="flex items-center gap-2.5">
+            <div className="w-6 h-6 bg-[#F97316] rounded-md flex items-center justify-center">
+              <div className="w-2.5 h-2.5 bg-[#0D0C0B] rounded-full" />
+            </div>
+            <span className="font-bold text-white text-lg tracking-tight">AxieRent</span>
           </Link>
           <nav className="hidden md:flex items-center gap-6">
             <Link
               href="/marketplace"
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-150"
+              className="text-sm text-[#A8A29E] hover:text-white transition-colors duration-150"
             >
               Marketplace
             </Link>
             {isLoggedIn && (
               <Link
                 href="/dashboard"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-150"
+                className="text-sm text-[#A8A29E] hover:text-white transition-colors duration-150"
               >
                 Dashboard
               </Link>
@@ -73,24 +76,25 @@ export function Header() {
           <div className="hidden md:flex items-center gap-3">
             {isLoggedIn ? (
               <DropdownMenu>
-                <DropdownMenuTrigger className="inline-flex items-center justify-center rounded-md border border-input bg-background px-3 h-8 text-xs font-mono cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors">
+                <DropdownMenuTrigger className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1C1B19] border border-[#2C2B29] px-3 h-8 text-xs font-mono text-white cursor-pointer hover:bg-[#2C2B29] transition-colors">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />
                   {truncatedAddress}
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="bg-card border-border">
-                  <DropdownMenuItem className="cursor-pointer" onClick={() => router.push("/dashboard")}>
+                <DropdownMenuContent align="end" className="bg-[#1C1B19] border-[#2C2B29] text-white">
+                  <DropdownMenuItem className="cursor-pointer text-[#A8A29E] hover:text-white focus:text-white focus:bg-[#2C2B29]" onClick={() => router.push("/dashboard")}>
                     Dashboard
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="cursor-pointer" onClick={() => router.push("/dashboard/my-axies")}>
+                  <DropdownMenuItem className="cursor-pointer text-[#A8A29E] hover:text-white focus:text-white focus:bg-[#2C2B29]" onClick={() => router.push("/dashboard/my-axies")}>
                     My Axies
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="cursor-pointer" onClick={() => router.push("/dashboard/my-listings")}>
+                  <DropdownMenuItem className="cursor-pointer text-[#A8A29E] hover:text-white focus:text-white focus:bg-[#2C2B29]" onClick={() => router.push("/dashboard/my-listings")}>
                     My Listings
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="cursor-pointer" onClick={() => router.push("/dashboard/my-rentals")}>
+                  <DropdownMenuItem className="cursor-pointer text-[#A8A29E] hover:text-white focus:text-white focus:bg-[#2C2B29]" onClick={() => router.push("/dashboard/my-rentals")}>
                     My Rentals
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" className="cursor-pointer" onClick={logout}>
+                  <DropdownMenuSeparator className="bg-[#2C2B29]" />
+                  <DropdownMenuItem variant="destructive" className="cursor-pointer focus:bg-[#2C2B29]" onClick={logout}>
                     Disconnect
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -103,14 +107,14 @@ export function Header() {
           {/* Mobile hamburger */}
           <div className="md:hidden">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-              <SheetTrigger className="inline-flex items-center justify-center w-9 h-9 rounded-md hover:bg-accent transition-colors cursor-pointer" aria-label="Open menu">
+              <SheetTrigger className="inline-flex items-center justify-center w-9 h-9 rounded-md text-[#A8A29E] hover:text-white hover:bg-[#1C1B19] transition-colors cursor-pointer" aria-label="Open menu">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
                 </svg>
               </SheetTrigger>
               <SheetContent side="right">
                 <SheetHeader>
-                  <SheetTitle className="font-heading tracking-tight text-left">Axie Rental</SheetTitle>
+                  <SheetTitle className="font-bold tracking-tight text-left">AxieRent</SheetTitle>
                 </SheetHeader>
                 <nav className="mt-6 flex flex-col gap-1">
                   {mobileNavLinks.map((link) => (

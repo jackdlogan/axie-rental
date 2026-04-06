@@ -48,6 +48,10 @@ export const GET_AXIE_DETAIL = `
         skill
         morale
       }
+      fortuneSlips {
+        total
+        potentialAmount
+      }
     }
   }
 `;

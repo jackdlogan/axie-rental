@@ -22,6 +22,7 @@ export interface Axie {
   owner?: string;
   parts: AxiePart[];
   stats: AxieStats;
+  fortuneSlips?: { total: number; potentialAmount: number };
 }
 
 export interface AxiesResponse {
