@@ -33,7 +33,7 @@ export function ConfirmReleaseButton({ rentalId }: ConfirmReleaseButtonProps) {
         args: [rentalIdBytes32],
       });
 
-      const [borrower, , axieId, , , , released, refunded] = rental;
+      const [borrower, , axieId, , , , , , released, refunded] = rental;
 
       if (borrower === "0x0000000000000000000000000000000000000000") {
         toast.error("Rental not found in escrow contract. Was the deposit made to a different contract address?");
@@ -76,7 +76,7 @@ export function ConfirmReleaseButton({ rentalId }: ConfirmReleaseButtonProps) {
       const txHash = await writeContractAsync({
         address: CONTRACTS.RENTAL_ESCROW,
         abi: rentalEscrowAbi,
-        functionName: "confirmAndRelease",
+        functionName: "confirmDelegation",
         args: [rentalIdBytes32],
       });
 
@@ -90,10 +90,10 @@ export function ConfirmReleaseButton({ rentalId }: ConfirmReleaseButtonProps) {
       await fetch(`/api/rentals/${rentalId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "COMPLETED", releaseTxHash: txHash }),
+        body: JSON.stringify({ status: "DELEGATION_CONFIRMED", delegationTxHash: txHash }),
       });
 
-      toast.success("Payment released to owner!");
+      toast.success("Delegation confirmed! Rental is now active.");
       qc.invalidateQueries({ queryKey: ["pending-rentals"] });
     } catch (err: unknown) {
       const msg = err instanceof BaseError ? err.shortMessage : err instanceof Error ? err.message : String(err);
