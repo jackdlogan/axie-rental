@@ -4,56 +4,55 @@ pragma solidity ^0.8.20;
 import "./interfaces/IERC20.sol";
 import "./interfaces/IAxieDelegation.sol";
 
-/// @title RentalEscrow v2
-/// @notice Trustless escrow for Axie rentals.
+/// @title TeamRentalEscrow
+/// @notice Trustless escrow for Axie team rentals (multiple Axies per rental, up to 50).
 ///
 /// Flow:
-///   1. Borrower calls deposit() — funds locked in escrow.
-///   2. Owner delegates Axie on-chain (AxieDelegation contract).
-///   3. Anyone calls confirmDelegation() — escrow verifies delegation covers
-///      the full rental period and records the start time. Funds stay locked.
-///   4a. After rental period ends, owner calls claimFunds() to receive payment.
-///   4b. If owner revokes early, borrower calls claimProRatedRefund() to receive
-///       a refund proportional to unused time; owner keeps payment for time used.
-///   4c. If owner never delegated within 24 h, borrower calls claimRefund()
-///       for a full refund.
-contract RentalEscrow {
+///   1. Borrower calls deposit() — funds locked in escrow for the whole team.
+///   2. Owner bulk-delegates all Axies on-chain (AxieDelegation.bulkDelegate).
+///   3. Anyone calls confirmDelegation() — escrow verifies ALL Axies are delegated
+///      to the borrower for the full rental period and records the start time.
+///   4a. After rental period ends, owner calls claimFunds().
+///   4b. If owner revokes ANY Axie early, borrower calls claimProRatedRefund().
+///   4c. If owner never delegated within 24 h, borrower calls claimRefund().
+///   4d. Owner can immediately refund a rejected offer via refundRejected().
+contract TeamRentalEscrow {
 
     // ─── Structs ─────────────────────────────────────────────────────────────
 
-    struct RentalDeposit {
-        address borrower;
-        address owner;
-        uint256 axieId;
-        uint256 amount;
-        uint256 rentalDays;
-        uint256 depositedAt;          // when deposit() was called
-        uint256 rentalStart;          // set by confirmDelegation(); 0 until then
-        uint256 feeBps;               // fee rate snapshot — immune to admin changes
-        bool    delegationConfirmed;
-        bool    released;
-        bool    refunded;
+    struct TeamRentalDeposit {
+        address  borrower;
+        address  owner;
+        uint256[] axieIds;          // up to 50 Axies
+        uint256  amount;            // total price for the whole team
+        uint256  rentalDays;
+        uint256  depositedAt;
+        uint256  rentalStart;       // set by confirmDelegation(); 0 until then
+        uint256  feeBps;
+        bool     delegationConfirmed;
+        bool     released;
+        bool     refunded;
     }
 
     // ─── State ───────────────────────────────────────────────────────────────
 
-    IERC20            public immutable usdc;
-    IAxieDelegation   public immutable axieDelegation;
-    address           public admin;
-    uint256           public platformFeeBps = 250;   // 2.5 %
-    address           public feeRecipient;
-    bool              public paused;
+    IERC20           public immutable usdc;
+    IAxieDelegation  public immutable axieDelegation;
+    address          public admin;
+    uint256          public platformFeeBps = 250;  // 2.5 %
+    address          public feeRecipient;
+    bool             public paused;
 
-    // Fee timelock — prevents surprise fee hikes on live rentals
     uint256 public pendingFeeBps;
-    uint256 public feeChangeAvailableAt;             // 0 when no proposal pending
+    uint256 public feeChangeAvailableAt;
 
     uint256 public constant DELEGATION_DEADLINE = 24 hours;
-    uint256 public constant DURATION_BUFFER     = 1 hours;   // clock-drift tolerance
+    uint256 public constant DURATION_BUFFER     = 1 hours;
     uint256 public constant FEE_TIMELOCK        = 48 hours;
-    uint256 public constant MAX_FEE_BPS         = 1000;      // 10 %
+    uint256 public constant MAX_FEE_BPS         = 1000;
+    uint256 public constant MAX_AXIES           = 50;
 
-    mapping(bytes32 => RentalDeposit) public rentals;
+    mapping(bytes32 => TeamRentalDeposit) public rentals;
 
     // ─── Events ──────────────────────────────────────────────────────────────
 
@@ -61,13 +60,14 @@ contract RentalEscrow {
         bytes32 indexed rentalId,
         address indexed borrower,
         address indexed owner,
-        uint256 amount
+        uint256 amount,
+        uint256[] axieIds
     );
     event DelegationConfirmed(
         bytes32 indexed rentalId,
         address indexed borrower,
         address indexed owner,
-        uint256 axieId,
+        uint256[] axieIds,
         uint256 rentalStart
     );
     event Released(
@@ -119,6 +119,8 @@ contract RentalEscrow {
     error NotAdmin();
     error ZeroAddress();
     error ContractPaused();
+    error TooManyAxies();
+    error NoAxies();
 
     // ─── Modifiers ───────────────────────────────────────────────────────────
 
@@ -149,69 +151,70 @@ contract RentalEscrow {
 
     // ─── Step 1: Borrower deposits ───────────────────────────────────────────
 
-    /// @notice Borrower deposits USDC into escrow to initiate a rental.
+    /// @notice Borrower deposits USDC into escrow for a team rental.
+    /// @param axieIds  Array of Axie token IDs in the team (max 50).
     function deposit(
         bytes32 rentalId,
         address owner,
-        uint256 axieId,
+        uint256[] calldata axieIds,
         uint256 amount,
         uint256 rentalDays
     ) external whenNotPaused {
         if (rentals[rentalId].borrower != address(0)) revert RentalAlreadyExists();
-        if (amount == 0) revert ZeroAmount();
+        if (amount == 0)                              revert ZeroAmount();
+        if (axieIds.length == 0)                      revert NoAxies();
+        if (axieIds.length > MAX_AXIES)               revert TooManyAxies();
 
-        rentals[rentalId] = RentalDeposit({
-            borrower:              msg.sender,
-            owner:                 owner,
-            axieId:                axieId,
-            amount:                amount,
-            rentalDays:            rentalDays,
-            depositedAt:           block.timestamp,
-            rentalStart:           0,
-            feeBps:                platformFeeBps,
-            delegationConfirmed:   false,
-            released:              false,
-            refunded:              false
+        rentals[rentalId] = TeamRentalDeposit({
+            borrower:            msg.sender,
+            owner:               owner,
+            axieIds:             axieIds,
+            amount:              amount,
+            rentalDays:          rentalDays,
+            depositedAt:         block.timestamp,
+            rentalStart:         0,
+            feeBps:              platformFeeBps,
+            delegationConfirmed: false,
+            released:            false,
+            refunded:            false
         });
 
         if (!usdc.transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
 
-        emit Deposited(rentalId, msg.sender, owner, amount);
+        emit Deposited(rentalId, msg.sender, owner, amount, axieIds);
     }
 
     // ─── Step 2: Confirm delegation (anyone) ─────────────────────────────────
 
-    /// @notice Verifies the Axie is delegated to the borrower for at least the
-    ///         full rental period, then records the rental start time.
-    ///         Funds remain locked — owner claims them after the rental ends.
-    /// @dev    Can be called by anyone once the owner has delegated on-chain.
+    /// @notice Verifies ALL Axies in the team are delegated to the borrower for
+    ///         at least the full rental period, then records the rental start time.
     function confirmDelegation(bytes32 rentalId) external {
-        RentalDeposit storage r = rentals[rentalId];
+        TeamRentalDeposit storage r = rentals[rentalId];
         if (r.borrower == address(0))  revert RentalNotFound();
         if (r.delegationConfirmed)     revert DelegationAlreadyConfirmed();
         if (r.refunded)                revert AlreadyRefunded();
         if (block.timestamp > r.depositedAt + DELEGATION_DEADLINE) revert DeadlinePassed();
 
-        (address delegatee, , uint64 expiryTs) = axieDelegation.getDelegationInfo(r.axieId);
+        uint256 len = r.axieIds.length;
+        for (uint256 i = 0; i < len; i++) {
+            (address delegatee, , uint64 expiryTs) = axieDelegation.getDelegationInfo(r.axieIds[i]);
 
-        if (delegatee != r.borrower)      revert NotDelegatedToBorrower();
-        if (block.timestamp >= expiryTs)  revert DelegationExpiredOnChain();
-
-        // Delegation must cover the full rental period (minus a small clock-drift buffer)
-        if (expiryTs < block.timestamp + r.rentalDays * 1 days - DURATION_BUFFER)
-            revert DurationTooShort();
+            if (delegatee != r.borrower)     revert NotDelegatedToBorrower();
+            if (block.timestamp >= expiryTs) revert DelegationExpiredOnChain();
+            if (expiryTs < block.timestamp + r.rentalDays * 1 days - DURATION_BUFFER)
+                revert DurationTooShort();
+        }
 
         r.delegationConfirmed = true;
         r.rentalStart         = block.timestamp;
 
-        emit DelegationConfirmed(rentalId, r.borrower, r.owner, r.axieId, block.timestamp);
+        emit DelegationConfirmed(rentalId, r.borrower, r.owner, r.axieIds, block.timestamp);
     }
 
     // ─── Step 3a: Owner claims funds after rental period ─────────────────────
 
-    /// @notice Owner receives full payment once the rental period has elapsed.
     function claimFunds(bytes32 rentalId) external {
-        RentalDeposit storage r = rentals[rentalId];
+        TeamRentalDeposit storage r = rentals[rentalId];
         if (r.borrower == address(0))  revert RentalNotFound();
         if (!r.delegationConfirmed)    revert DelegationNotConfirmed();
         if (r.released)                revert AlreadyReleased();
@@ -225,19 +228,18 @@ contract RentalEscrow {
         uint256 fee         = (r.amount * r.feeBps) / 10_000;
         uint256 ownerAmount = r.amount - fee;
 
-        if (!usdc.transfer(r.owner, ownerAmount)) revert TransferFailed();
+        if (!usdc.transfer(r.owner, ownerAmount))        revert TransferFailed();
         if (fee > 0 && !usdc.transfer(feeRecipient, fee)) revert TransferFailed();
 
         emit Released(rentalId, r.owner, ownerAmount);
     }
 
-    // ─── Step 3b: Borrower claims pro-rated refund if revoked early ──────────
+    // ─── Step 3b: Borrower claims pro-rated refund if ANY Axie revoked early ─
 
-    /// @notice If the owner revokes the Axie delegation before the rental period
+    /// @notice If the owner revokes ANY Axie in the team before the rental period
     ///         ends, the borrower reclaims a refund for the unused time.
-    ///         The owner keeps payment (minus fee) for the time the Axie was used.
     function claimProRatedRefund(bytes32 rentalId) external {
-        RentalDeposit storage r = rentals[rentalId];
+        TeamRentalDeposit storage r = rentals[rentalId];
         if (r.borrower == address(0))  revert RentalNotFound();
         if (!r.delegationConfirmed)    revert DelegationNotConfirmed();
         if (r.released)                revert AlreadyReleased();
@@ -247,34 +249,41 @@ contract RentalEscrow {
         uint256 rentalEnd = r.rentalStart + r.rentalDays * 1 days;
         if (block.timestamp >= rentalEnd) revert RentalPeriodEnded();
 
-        // Delegation must no longer be active for the borrower
-        (address delegatee, , uint64 expiryTs) = axieDelegation.getDelegationInfo(r.axieId);
-        if (delegatee == r.borrower && block.timestamp < expiryTs) revert StillDelegated();
+        // Check that at least one Axie is no longer delegated to the borrower
+        bool anyRevoked = false;
+        uint256 len = r.axieIds.length;
+        for (uint256 i = 0; i < len; i++) {
+            (address delegatee, , uint64 expiryTs) = axieDelegation.getDelegationInfo(r.axieIds[i]);
+            if (delegatee != r.borrower || block.timestamp >= expiryTs) {
+                anyRevoked = true;
+                break;
+            }
+        }
+        if (!anyRevoked) revert StillDelegated();
 
         r.refunded = true;
 
-        // Pro-rate by seconds for precision
-        uint256 secondsUsed  = block.timestamp - r.rentalStart;
-        uint256 totalSeconds = r.rentalDays * 1 days;
-        uint256 ownerEarned  = (r.amount * secondsUsed) / totalSeconds;
+        uint256 secondsUsed   = block.timestamp - r.rentalStart;
+        uint256 totalSeconds  = r.rentalDays * 1 days;
+        uint256 ownerEarned   = (r.amount * secondsUsed) / totalSeconds;
 
-        uint256 fee           = (ownerEarned * r.feeBps) / 10_000;
-        uint256 ownerAmount   = ownerEarned - fee;
+        uint256 fee            = (ownerEarned * r.feeBps) / 10_000;
+        uint256 ownerAmount    = ownerEarned - fee;
         uint256 borrowerAmount = r.amount - ownerEarned;
 
-        if (ownerAmount   > 0 && !usdc.transfer(r.owner,     ownerAmount))   revert TransferFailed();
-        if (fee           > 0 && !usdc.transfer(feeRecipient, fee))          revert TransferFailed();
-        if (borrowerAmount > 0 && !usdc.transfer(r.borrower, borrowerAmount)) revert TransferFailed();
+        if (ownerAmount    > 0 && !usdc.transfer(r.owner,      ownerAmount))    revert TransferFailed();
+        if (fee            > 0 && !usdc.transfer(feeRecipient, fee))            revert TransferFailed();
+        if (borrowerAmount > 0 && !usdc.transfer(r.borrower,   borrowerAmount)) revert TransferFailed();
 
         emit ProRatedRefund(rentalId, r.borrower, borrowerAmount, ownerAmount);
     }
 
-    // ─── Step 3c: Owner refunds a rejected borrower immediately ─────────────
+    // ─── Step 3c: Owner immediately refunds a rejected offer ─────────────────
 
     /// @notice Owner can immediately refund a borrower whose offer was not chosen,
     ///         without waiting for the 24 h deadline.
     function refundRejected(bytes32 rentalId) external {
-        RentalDeposit storage r = rentals[rentalId];
+        TeamRentalDeposit storage r = rentals[rentalId];
         if (r.borrower == address(0))  revert RentalNotFound();
         if (r.delegationConfirmed)     revert DelegationAlreadyConfirmed();
         if (r.released)                revert AlreadyReleased();
@@ -288,11 +297,11 @@ contract RentalEscrow {
         emit Refunded(rentalId, r.borrower, r.amount);
     }
 
-    // ─── Step 3d: Borrower claims full refund if owner never delegated ───────
+    // ─── Step 3d: Borrower claims full refund if owner never delegated ────────
 
     /// @notice If the owner did not delegate within 24 h, borrower gets a full refund.
     function claimRefund(bytes32 rentalId) external {
-        RentalDeposit storage r = rentals[rentalId];
+        TeamRentalDeposit storage r = rentals[rentalId];
         if (r.borrower == address(0))  revert RentalNotFound();
         if (r.delegationConfirmed)     revert DelegationAlreadyConfirmed();
         if (r.released)                revert AlreadyReleased();
@@ -300,9 +309,12 @@ contract RentalEscrow {
         if (msg.sender != r.borrower)  revert NotBorrower();
         if (block.timestamp < r.depositedAt + DELEGATION_DEADLINE) revert DeadlineNotPassed();
 
-        // Uses getDelegationInfo — robust against proxy upgrades unlike raw selectors
-        (address delegatee, , uint64 expiryTs) = axieDelegation.getDelegationInfo(r.axieId);
-        if (delegatee == r.borrower && block.timestamp < expiryTs) revert StillDelegated();
+        // Ensure none of the axies are still delegated to the borrower
+        uint256 len = r.axieIds.length;
+        for (uint256 i = 0; i < len; i++) {
+            (address delegatee, , uint64 expiryTs) = axieDelegation.getDelegationInfo(r.axieIds[i]);
+            if (delegatee == r.borrower && block.timestamp < expiryTs) revert StillDelegated();
+        }
 
         r.refunded = true;
 
@@ -317,23 +329,23 @@ contract RentalEscrow {
         external
         view
         returns (
-            address borrower,
-            address owner,
-            uint256 axieId,
-            uint256 amount,
-            uint256 rentalDays,
-            uint256 depositedAt,
-            uint256 rentalStart,
-            bool    delegationConfirmed,
-            bool    released,
-            bool    refunded
+            address  borrower,
+            address  owner,
+            uint256[] memory axieIds,
+            uint256  amount,
+            uint256  rentalDays,
+            uint256  depositedAt,
+            uint256  rentalStart,
+            bool     delegationConfirmed,
+            bool     released,
+            bool     refunded
         )
     {
-        RentalDeposit storage r = rentals[rentalId];
+        TeamRentalDeposit storage r = rentals[rentalId];
         return (
             r.borrower,
             r.owner,
-            r.axieId,
+            r.axieIds,
             r.amount,
             r.rentalDays,
             r.depositedAt,
@@ -346,19 +358,16 @@ contract RentalEscrow {
 
     // ─── Admin ────────────────────────────────────────────────────────────────
 
-    /// @notice Propose a fee change. Takes effect only after a 48 h timelock,
-    ///         giving users time to react before the change affects new deposits.
     function proposeFeeChange(uint256 _feeBps) external onlyAdmin {
         if (_feeBps > MAX_FEE_BPS) revert FeeTooHigh();
-        pendingFeeBps       = _feeBps;
+        pendingFeeBps        = _feeBps;
         feeChangeAvailableAt = block.timestamp + FEE_TIMELOCK;
         emit FeeProposed(_feeBps, feeChangeAvailableAt);
     }
 
-    /// @notice Execute the pending fee change after the timelock has passed.
     function executeFeeChange() external onlyAdmin {
-        if (feeChangeAvailableAt == 0)                 revert NoFeePending();
-        if (block.timestamp < feeChangeAvailableAt)    revert TimelockNotPassed();
+        if (feeChangeAvailableAt == 0)              revert NoFeePending();
+        if (block.timestamp < feeChangeAvailableAt) revert TimelockNotPassed();
         platformFeeBps       = pendingFeeBps;
         feeChangeAvailableAt = 0;
         emit FeeExecuted(platformFeeBps);
@@ -376,7 +385,6 @@ contract RentalEscrow {
         admin = _newAdmin;
     }
 
-    /// @notice Pause new deposits. Existing rentals (confirm/claim) are unaffected.
     function pause() external onlyAdmin {
         paused = true;
         emit Paused(msg.sender);

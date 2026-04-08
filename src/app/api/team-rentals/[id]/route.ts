@@ -3,15 +3,14 @@ import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import type { RentalStatus } from "@prisma/client";
 
-// Allowed status transitions: who can move from → to
 const TRANSITIONS: Record<RentalStatus, { to: RentalStatus; actor: "owner" | "borrower" | "either" }[]> = {
-  PENDING_PAYMENT:     [{ to: "PAYMENT_DEPOSITED", actor: "borrower" }, { to: "CANCELLED", actor: "either" }],
-  PAYMENT_DEPOSITED:   [{ to: "DELEGATION_CONFIRMED", actor: "owner" }, { to: "REFUNDED", actor: "borrower" }],
-  DELEGATION_CONFIRMED:[{ to: "COMPLETED", actor: "either" }],
-  ACTIVE:              [{ to: "COMPLETED", actor: "either" }],
-  COMPLETED:           [],
-  REFUNDED:            [],
-  CANCELLED:           [],
+  PENDING_PAYMENT:      [{ to: "PAYMENT_DEPOSITED", actor: "borrower" }, { to: "CANCELLED", actor: "either" }],
+  PAYMENT_DEPOSITED:    [{ to: "DELEGATION_CONFIRMED", actor: "owner" }, { to: "REFUNDED", actor: "borrower" }],
+  DELEGATION_CONFIRMED: [{ to: "COMPLETED", actor: "either" }],
+  ACTIVE:               [{ to: "COMPLETED", actor: "either" }],
+  COMPLETED:            [],
+  REFUNDED:             [],
+  CANCELLED:            [],
 };
 
 const TX_HASH_RE = /^0x[0-9a-fA-F]{64}$/;
@@ -26,10 +25,10 @@ export async function GET(
   }
 
   const { id } = await params;
-  const rental = await prisma.rental.findUnique({
+  const rental = await prisma.teamRental.findUnique({
     where: { id },
     include: {
-      listing: true,
+      teamListing: { include: { axies: true } },
       owner: { select: { walletAddress: true } },
       borrower: { select: { walletAddress: true } },
     },
@@ -38,7 +37,6 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Only owner or borrower may read the rental details
   const isOwner = rental.owner.walletAddress === session.walletAddress;
   const isBorrower = rental.borrower.walletAddress === session.walletAddress;
   if (!isOwner && !isBorrower) {
@@ -58,7 +56,7 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const rental = await prisma.rental.findUnique({
+  const rental = await prisma.teamRental.findUnique({
     where: { id },
     include: { owner: true, borrower: true },
   });
@@ -75,7 +73,6 @@ export async function PATCH(
   const body = await req.json();
   const { status, escrowTxHash, delegationTxHash, releaseTxHash, refundTxHash } = body;
 
-  // Validate status transition
   if (status !== undefined) {
     const allowed = TRANSITIONS[rental.status as RentalStatus] ?? [];
     const transition = allowed.find((t) => t.to === status);
@@ -94,7 +91,6 @@ export async function PATCH(
     }
   }
 
-  // Validate tx hash formats
   for (const [field, hash] of [
     ["escrowTxHash", escrowTxHash],
     ["delegationTxHash", delegationTxHash],
@@ -113,15 +109,13 @@ export async function PATCH(
     if (status === "DELEGATION_CONFIRMED") {
       data.startDate = new Date();
       data.endDate = new Date(Date.now() + rental.rentalDays * 86400000);
-      // Lock the listing — owner has chosen this borrower
-      await prisma.listing.update({
-        where: { id: rental.listingId },
+      await prisma.teamListing.update({
+        where: { id: rental.teamListingId },
         data: { status: "RENTED" },
       });
-      // Auto-refund all other pending offers for the same listing
-      await prisma.rental.updateMany({
+      await prisma.teamRental.updateMany({
         where: {
-          listingId: rental.listingId,
+          teamListingId: rental.teamListingId,
           id: { not: rental.id },
           status: "PAYMENT_DEPOSITED",
         },
@@ -129,9 +123,8 @@ export async function PATCH(
       });
     }
     if (status === "COMPLETED" || status === "CANCELLED" || status === "REFUNDED") {
-      // Only re-open the listing if it was locked (i.e. this was the accepted offer)
-      await prisma.listing.updateMany({
-        where: { id: rental.listingId, status: "RENTED" },
+      await prisma.teamListing.updateMany({
+        where: { id: rental.teamListingId, status: "RENTED" },
         data: { status: "ACTIVE" },
       });
     }
@@ -141,6 +134,6 @@ export async function PATCH(
   if (releaseTxHash) data.releaseTxHash = releaseTxHash;
   if (refundTxHash) data.refundTxHash = refundTxHash;
 
-  const updated = await prisma.rental.update({ where: { id }, data });
+  const updated = await prisma.teamRental.update({ where: { id }, data });
   return NextResponse.json({ rental: updated });
 }

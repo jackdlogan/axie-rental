@@ -72,25 +72,21 @@ async function runSync() {
       });
 
       if (rental) {
-        await prisma.$transaction([
-          prisma.rental.update({
-            where: { id: rental.id },
-            data: { status: "PAYMENT_DEPOSITED", escrowTxHash: txHash },
-          }),
-          prisma.listing.update({
-            where: { id: rental.listingId },
-            data: { status: "RENTED" },
-          }),
-        ]);
+        // Listing stays ACTIVE — multiple offers are allowed until owner picks one.
+        await prisma.rental.update({
+          where: { id: rental.id },
+          data: { status: "PAYMENT_DEPOSITED", escrowTxHash: txHash },
+        });
         depositsProcessed++;
       }
     }
 
-    // ── AxieDelegated → DELEGATION_CONFIRMED ─────────────────────────────────
+    // ── DelegationConfirmed (escrow) → DELEGATION_CONFIRMED ──────────────────
+    // Fired by RentalEscrow.confirmDelegation() — contains borrower + owner + axieId
     const delegationLogs = await publicClient.getLogs({
-      address: CONTRACTS.AXIE_DELEGATION,
+      address: CONTRACTS.RENTAL_ESCROW,
       event: parseAbiItem(
-        "event AxieDelegated(uint256 indexed tokenId, address indexed owner, address indexed delegatee, uint256 expiryTs)"
+        "event DelegationConfirmed(bytes32 indexed rentalId, address indexed borrower, address indexed owner, uint256 axieId, uint256 rentalStart)"
       ),
       fromBlock,
       toBlock: latest,
@@ -98,30 +94,46 @@ async function runSync() {
 
     let delegationsProcessed = 0;
     for (const log of delegationLogs) {
-      const tokenId = log.args.tokenId?.toString();
-      const delegatee = log.args.delegatee?.toLowerCase();
-      const onChainOwner = log.args.owner?.toLowerCase();
-      if (!tokenId || !delegatee || !onChainOwner) continue;
+      const borrowerAddr  = log.args.borrower?.toLowerCase();
+      const ownerAddr     = log.args.owner?.toLowerCase();
+      const tokenId       = log.args.axieId?.toString();
+      const rentalStartTs = log.args.rentalStart ? Number(log.args.rentalStart) * 1000 : Date.now();
+      if (!borrowerAddr || !ownerAddr || !tokenId) continue;
 
       const rental = await prisma.rental.findFirst({
         where: {
           listing: { axieId: tokenId },
           status: "PAYMENT_DEPOSITED",
-          borrower: { walletAddress: delegatee },
-          owner: { walletAddress: onChainOwner },
+          borrower: { walletAddress: borrowerAddr },
+          owner:    { walletAddress: ownerAddr },
         },
       });
 
       if (rental) {
-        await prisma.rental.update({
-          where: { id: rental.id },
-          data: {
-            status: "DELEGATION_CONFIRMED",
-            delegationTxHash: log.transactionHash,
-            startDate: new Date(),
-            endDate: new Date(Date.now() + rental.rentalDays * 86400000),
-          },
-        });
+        const rentalStart = new Date(rentalStartTs);
+        await prisma.$transaction([
+          prisma.rental.update({
+            where: { id: rental.id },
+            data: {
+              status: "DELEGATION_CONFIRMED",
+              delegationTxHash: log.transactionHash,
+              startDate: rentalStart,
+              endDate: new Date(rentalStartTs + rental.rentalDays * 86400000),
+            },
+          }),
+          prisma.listing.update({
+            where: { id: rental.listingId },
+            data: { status: "RENTED" },
+          }),
+          prisma.rental.updateMany({
+            where: {
+              listingId: rental.listingId,
+              id: { not: rental.id },
+              status: "PAYMENT_DEPOSITED",
+            },
+            data: { status: "REFUNDED" },
+          }),
+        ]);
         delegationsProcessed++;
       }
     }
@@ -157,8 +169,9 @@ async function runSync() {
             where: { id: rental.id },
             data: { status: "COMPLETED", releaseTxHash: txHash },
           }),
-          prisma.listing.update({
-            where: { id: rental.listingId },
+          // Only re-open the listing if it was locked by this rental
+          prisma.listing.updateMany({
+            where: { id: rental.listingId, status: "RENTED" },
             data: { status: "ACTIVE" },
           }),
         ]);
@@ -197,12 +210,52 @@ async function runSync() {
             where: { id: rental.id },
             data: { status: "REFUNDED", refundTxHash: txHash },
           }),
-          prisma.listing.update({
-            where: { id: rental.listingId },
+          // Only re-open the listing if it was locked by this rental (not a rejected offer)
+          prisma.listing.updateMany({
+            where: { id: rental.listingId, status: "RENTED" },
             data: { status: "ACTIVE" },
           }),
         ]);
         refundsProcessed++;
+      }
+    }
+
+    // ── ProRatedRefund → REFUNDED + listing ACTIVE ───────────────────────────
+    const proRatedLogs = await publicClient.getLogs({
+      address: CONTRACTS.RENTAL_ESCROW,
+      event: parseAbiItem(
+        "event ProRatedRefund(bytes32 indexed rentalId, address indexed borrower, uint256 borrowerAmount, uint256 ownerAmount)"
+      ),
+      fromBlock,
+      toBlock: latest,
+    });
+
+    let proRatedProcessed = 0;
+    for (const log of proRatedLogs) {
+      const txHash      = log.transactionHash;
+      const borrowerAddr = log.args.borrower?.toLowerCase();
+      if (!txHash || !borrowerAddr) continue;
+
+      const rental = await prisma.rental.findFirst({
+        where: {
+          status: "DELEGATION_CONFIRMED",
+          borrower: { walletAddress: borrowerAddr },
+          refundTxHash: null,
+        },
+      });
+
+      if (rental) {
+        await prisma.$transaction([
+          prisma.rental.update({
+            where: { id: rental.id },
+            data: { status: "REFUNDED", refundTxHash: txHash },
+          }),
+          prisma.listing.updateMany({
+            where: { id: rental.listingId, status: "RENTED" },
+            data: { status: "ACTIVE" },
+          }),
+        ]);
+        proRatedProcessed++;
       }
     }
 
@@ -213,6 +266,7 @@ async function runSync() {
         delegations: delegationsProcessed,
         releases: releasesProcessed,
         refunds: refundsProcessed,
+        proRatedRefunds: proRatedProcessed,
       },
       blockRange: { from: fromBlock.toString(), to: latest.toString() },
     });

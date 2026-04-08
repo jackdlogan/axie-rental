@@ -5,27 +5,27 @@ import { useWriteContract, useAccount, usePublicClient } from "wagmi";
 import { parseUnits, formatUnits, keccak256, toBytes } from "viem";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { erc20Abi, rentalEscrowAbi, CONTRACTS } from "@/lib/contracts";
+import { erc20Abi, teamRentalEscrowAbi, CONTRACTS } from "@/lib/contracts";
 
-interface RentButtonProps {
-  listingId: string;
-  axieId: string;
+interface TeamRentButtonProps {
+  teamListingId: string;
   ownerAddress: string;
+  axieIds: string[];
   rentalDays: number;
-  totalPrice: string; // decimal string, e.g. "12.50"
+  totalPrice: string;
   onSuccess?: () => void;
 }
 
 type Step = "idle" | "creating" | "approving" | "awaiting-approve" | "depositing" | "done";
 
-export function RentButton({
-  listingId,
-  axieId,
+export function TeamRentButton({
+  teamListingId,
   ownerAddress,
+  axieIds,
   rentalDays,
   totalPrice,
   onSuccess,
-}: RentButtonProps) {
+}: TeamRentButtonProps) {
   const [step, setStep] = useState<Step>("idle");
   const { address } = useAccount();
   const { writeContractAsync } = useWriteContract();
@@ -34,18 +34,13 @@ export function RentButton({
   const isLoading = step !== "idle" && step !== "done";
 
   const handleRent = async () => {
-    if (!address) {
+    if (!address || !publicClient) {
       toast.error("Connect your wallet first");
-      return;
-    }
-    if (!publicClient) {
-      toast.error("Wallet not connected");
       return;
     }
 
     const amountWei = parseUnits(totalPrice, 6);
 
-    // Pre-flight: check USDC balance
     try {
       const balance = await publicClient.readContract({
         address: CONTRACTS.USDC,
@@ -56,8 +51,8 @@ export function RentButton({
 
       if (balance < amountWei) {
         const have = formatUnits(balance, 6);
-        toast.error(`Insufficient USDC balance`, {
-          description: `You have ${parseFloat(have).toFixed(2)} USDC but need ${totalPrice} USDC. Bridge USDC to Ronin or swap on Katana DEX.`,
+        toast.error("Insufficient USDC balance", {
+          description: `You have ${parseFloat(have).toFixed(2)} USDC but need ${totalPrice} USDC.`,
           action: {
             label: "Get USDC",
             onClick: () => window.open("https://app.roninchain.com/bridge", "_blank"),
@@ -67,17 +62,17 @@ export function RentButton({
         return;
       }
     } catch {
-      // If balance check fails, continue — the deposit tx itself will revert with a clear error
+      // continue
     }
 
-    // Step 1: Create rental in DB
+    // Step 1: Create team rental in DB
     setStep("creating");
     let rentalId: string;
     try {
-      const res = await fetch("/api/rentals", {
+      const res = await fetch("/api/team-rentals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ listingId, rentalDays }),
+        body: JSON.stringify({ teamListingId, rentalDays }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -102,7 +97,7 @@ export function RentButton({
         address: CONTRACTS.USDC,
         abi: erc20Abi,
         functionName: "approve",
-        args: [CONTRACTS.RENTAL_ESCROW, amountWei],
+        args: [CONTRACTS.TEAM_RENTAL_ESCROW, amountWei],
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -111,7 +106,7 @@ export function RentButton({
       return;
     }
 
-    // Step 3: Wait for approval to be mined before depositing
+    // Step 3: Wait for approval
     setStep("awaiting-approve");
     try {
       await publicClient.waitForTransactionReceipt({ hash: approveTxHash });
@@ -121,36 +116,32 @@ export function RentButton({
       return;
     }
 
-    // Step 4: Deposit to escrow
+    // Step 4: Deposit to team escrow
     setStep("depositing");
     try {
       const depositTx = await writeContractAsync({
-        address: CONTRACTS.RENTAL_ESCROW,
-        abi: rentalEscrowAbi,
+        address: CONTRACTS.TEAM_RENTAL_ESCROW,
+        abi: teamRentalEscrowAbi,
         functionName: "deposit",
         args: [
           rentalIdBytes32,
           ownerAddress as `0x${string}`,
-          BigInt(axieId),
+          axieIds.map((id) => BigInt(id)),
           amountWei,
           BigInt(rentalDays),
         ],
       });
 
-      const patchRes = await fetch(`/api/rentals/${rentalId}`, {
+      const patchRes = await fetch(`/api/team-rentals/${rentalId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: "PAYMENT_DEPOSITED",
-          escrowTxHash: depositTx,
-        }),
+        body: JSON.stringify({ status: "PAYMENT_DEPOSITED", escrowTxHash: depositTx }),
       });
 
       if (!patchRes.ok) {
-        // Deposit is on-chain — funds are safe. Cron will pick it up within minutes.
-        toast.warning("Offer deposited on-chain but status update failed. Your funds are safe — status will sync automatically within a few minutes.");
+        toast.warning("Deposited on-chain but status update failed. Your funds are safe — status will sync automatically.");
       } else {
-        toast.success("Offer submitted! The owner will review all offers and delegate to their chosen borrower.");
+        toast.success("Offer submitted! The owner will review and delegate the team.");
       }
 
       setStep("done");

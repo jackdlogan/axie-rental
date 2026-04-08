@@ -3,6 +3,11 @@ import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { queryAxieGraphQL, GET_AXIE_DETAIL } from "@/lib/graphql";
 import type { AxieDetailResponse } from "@/lib/graphql";
+import { publicClient } from "@/lib/chain/client";
+import { erc721Abi, CONTRACTS } from "@/lib/contracts";
+import { rateLimit, getIp } from "@/lib/ratelimit";
+
+const MIN_PRICE_PER_DAY = 0.1; // USDC
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -10,6 +15,7 @@ export async function GET(req: NextRequest) {
   const axieId = searchParams.get("axieId");
   const axieClass = searchParams.get("class");
   const search = searchParams.get("search");
+  const minFortuneSlips = searchParams.get("minFortuneSlips");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: any = {};
@@ -26,6 +32,7 @@ export async function GET(req: NextRequest) {
 
   if (axieId) where.axieId = axieId;
   if (axieClass && axieClass !== "All") where.axieClass = axieClass;
+  if (minFortuneSlips) where.fortuneSlips = { gte: Number(minFortuneSlips) };
   if (search) {
     where.OR = [
       { axieId: { contains: search } },
@@ -39,10 +46,30 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  return NextResponse.json({ listings });
+  // Attach pending offer count to each listing
+  const offerCounts = await prisma.rental.groupBy({
+    by: ["listingId"],
+    where: {
+      listingId: { in: listings.map((l) => l.id) },
+      status: "PAYMENT_DEPOSITED",
+    },
+    _count: { id: true },
+  });
+  const offerCountMap = new Map(offerCounts.map((o) => [o.listingId, o._count.id]));
+  const listingsWithOffers = listings.map((l) => ({
+    ...l,
+    pendingOfferCount: offerCountMap.get(l.id) ?? 0,
+  }));
+
+  return NextResponse.json({ listings: listingsWithOffers });
 }
 
 export async function POST(req: NextRequest) {
+  // Rate limit: 5 listings per minute per IP
+  if (!rateLimit(`listing:${getIp(req)}`, 5, 60_000)) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   const session = await getSession();
   if (!session.walletAddress) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -53,6 +80,31 @@ export async function POST(req: NextRequest) {
 
   if (!axieId || !pricePerDay) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+  }
+
+  if (typeof pricePerDay !== "number" || pricePerDay < MIN_PRICE_PER_DAY || pricePerDay > 10_000) {
+    return NextResponse.json(
+      { error: `pricePerDay must be between ${MIN_PRICE_PER_DAY} and 10,000 USDC` },
+      { status: 400 }
+    );
+  }
+
+  // Verify on-chain ownership before accepting the listing
+  try {
+    const onChainOwner = await publicClient.readContract({
+      address: CONTRACTS.AXIE_NFT,
+      abi: erc721Abi,
+      functionName: "ownerOf",
+      args: [BigInt(axieId)],
+    });
+    if (onChainOwner.toLowerCase() !== session.walletAddress.toLowerCase()) {
+      return NextResponse.json({ error: "You do not own this Axie" }, { status: 403 });
+    }
+  } catch {
+    return NextResponse.json(
+      { error: "Could not verify Axie ownership on-chain. Check the Axie ID." },
+      { status: 400 }
+    );
   }
 
   const user = await prisma.user.findUnique({
@@ -66,6 +118,7 @@ export async function POST(req: NextRequest) {
   let axieClass: string | null = null;
   let axieName: string | null = null;
   let axieGenes: string | null = null;
+  let fortuneSlips: number | null = null;
   try {
     const data = await queryAxieGraphQL<AxieDetailResponse>(GET_AXIE_DETAIL, {
       axieId,
@@ -74,6 +127,7 @@ export async function POST(req: NextRequest) {
       axieClass = data.axie.class ?? null;
       axieName = data.axie.name ?? null;
       axieGenes = data.axie.newGenes ?? null;
+      fortuneSlips = data.axie.fortuneSlips?.total ?? null;
     }
   } catch (err) {
     console.error("Failed to fetch axie metadata:", err);
@@ -99,6 +153,7 @@ export async function POST(req: NextRequest) {
       axieClass,
       axieName,
       axieGenes,
+      fortuneSlips,
       pricePerDay,
       minDays,
       maxDays,

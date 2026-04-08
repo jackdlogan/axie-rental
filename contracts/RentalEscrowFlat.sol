@@ -1,8 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "./interfaces/IERC20.sol";
-import "./interfaces/IAxieDelegation.sol";
+interface IERC20 {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
+    function approve(address spender, uint256 amount) external returns (bool);
+}
+
+interface IAxieDelegation {
+    function delegate(uint256 tokenId, address delegatee, uint64 expiryTs, uint64 gameType) external;
+    function bulkDelegate(
+        uint256[] calldata tokenIds,
+        address[] calldata delegatees,
+        uint64[] calldata expiryTimes,
+        uint64[] calldata gameTypes
+    ) external;
+    function revokeDelegation(uint256 tokenId) external;
+    function getDelegationInfo(uint256 tokenId)
+        external
+        view
+        returns (address delegatee, uint64 delegatedAt, uint64 expiryTs);
+}
 
 /// @title RentalEscrow v2
 /// @notice Trustless escrow for Axie rentals.
@@ -269,26 +288,7 @@ contract RentalEscrow {
         emit ProRatedRefund(rentalId, r.borrower, borrowerAmount, ownerAmount);
     }
 
-    // ─── Step 3c: Owner refunds a rejected borrower immediately ─────────────
-
-    /// @notice Owner can immediately refund a borrower whose offer was not chosen,
-    ///         without waiting for the 24 h deadline.
-    function refundRejected(bytes32 rentalId) external {
-        RentalDeposit storage r = rentals[rentalId];
-        if (r.borrower == address(0))  revert RentalNotFound();
-        if (r.delegationConfirmed)     revert DelegationAlreadyConfirmed();
-        if (r.released)                revert AlreadyReleased();
-        if (r.refunded)                revert AlreadyRefunded();
-        if (msg.sender != r.owner)     revert NotOwner();
-
-        r.refunded = true;
-
-        if (!usdc.transfer(r.borrower, r.amount)) revert TransferFailed();
-
-        emit Refunded(rentalId, r.borrower, r.amount);
-    }
-
-    // ─── Step 3d: Borrower claims full refund if owner never delegated ───────
+    // ─── Step 3c: Borrower claims full refund if owner never delegated ───────
 
     /// @notice If the owner did not delegate within 24 h, borrower gets a full refund.
     function claimRefund(bytes32 rentalId) external {
@@ -300,7 +300,6 @@ contract RentalEscrow {
         if (msg.sender != r.borrower)  revert NotBorrower();
         if (block.timestamp < r.depositedAt + DELEGATION_DEADLINE) revert DeadlineNotPassed();
 
-        // Uses getDelegationInfo — robust against proxy upgrades unlike raw selectors
         (address delegatee, , uint64 expiryTs) = axieDelegation.getDelegationInfo(r.axieId);
         if (delegatee == r.borrower && block.timestamp < expiryTs) revert StillDelegated();
 
@@ -346,8 +345,7 @@ contract RentalEscrow {
 
     // ─── Admin ────────────────────────────────────────────────────────────────
 
-    /// @notice Propose a fee change. Takes effect only after a 48 h timelock,
-    ///         giving users time to react before the change affects new deposits.
+    /// @notice Propose a fee change. Takes effect only after a 48 h timelock.
     function proposeFeeChange(uint256 _feeBps) external onlyAdmin {
         if (_feeBps > MAX_FEE_BPS) revert FeeTooHigh();
         pendingFeeBps       = _feeBps;

@@ -8,6 +8,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { AxieImage } from "@/components/axie/axie-image";
+import { AxieClassIcon } from "@/components/axie/axie-class-icon";
 
 interface Listing {
   id: string;
@@ -15,6 +16,7 @@ interface Listing {
   axieClass: string | null;
   axieName: string | null;
   axieGenes: string | null;
+  fortuneSlips: number | null;
   pricePerDay: string;
   minDays: number;
   maxDays: number;
@@ -30,13 +32,15 @@ const AXIE_CLASSES = [
 export default function MarketplacePage() {
   const [classFilter, setClassFilter] = useState("All");
   const [search, setSearch] = useState("");
+  const [minSlips, setMinSlips] = useState<number | null>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["listings", classFilter, search],
+    queryKey: ["listings", classFilter, search, minSlips],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (classFilter !== "All") params.set("class", classFilter);
       if (search) params.set("search", search);
+      if (minSlips !== null) params.set("minFortuneSlips", String(minSlips));
       const res = await fetch(`/api/listings?${params}`);
       return res.json() as Promise<{ listings: Listing[] }>;
     },
@@ -45,9 +49,14 @@ export default function MarketplacePage() {
   return (
     <div className="container mx-auto px-4 py-10">
       {/* Page header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-extrabold text-[#0D0C0B] tracking-[-0.03em] mb-1">Marketplace</h1>
-        <p className="text-sm text-[#78716C]">Browse available Axies for rent on Ronin</p>
+      <div className="flex items-end justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-extrabold text-[#0D0C0B] tracking-[-0.03em] mb-1">Marketplace</h1>
+          <p className="text-sm text-[#78716C]">Browse available Axies for rent on Ronin</p>
+        </div>
+        <Link href="/marketplace/teams" className="text-sm font-medium text-primary hover:underline">
+          Browse Team Listings →
+        </Link>
       </div>
 
       {/* Filters */}
@@ -72,6 +81,31 @@ export default function MarketplacePage() {
               )}
             >
               {c}
+            </button>
+          ))}
+        </div>
+        {/* Fortune slips filter */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://cdn.axieinfinity.com/marketplace-website/asset-icon/fortune-slip.png"
+            alt="Fortune Slip"
+            width={18}
+            height={18}
+          />
+          <span className="text-sm text-[#78716C]">Min Fortune Slips:</span>
+          {[null, 1, 5, 20, 80].map((val) => (
+            <button
+              key={val ?? "any"}
+              onClick={() => setMinSlips(val)}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer",
+                minSlips === val
+                  ? "bg-[#F97316] text-white"
+                  : "border border-[#E7E5E4] text-[#78716C] hover:border-[#F97316] hover:text-[#F97316]"
+              )}
+            >
+              {val === null ? "Any" : `${val}+`}
             </button>
           ))}
         </div>
@@ -113,8 +147,21 @@ export default function MarketplacePage() {
                     className="group-hover:scale-105 transition-transform duration-300"
                   />
                   {listing.axieClass && (
-                    <span className="absolute top-2 right-2 bg-[#0D0C0B] text-white text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-md">
+                    <span className="absolute top-2 right-2 flex items-center gap-1 bg-[#0D0C0B] text-white text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-md">
+                      <AxieClassIcon axieClass={listing.axieClass} size={14} />
                       {listing.axieClass}
+                    </span>
+                  )}
+                  {listing.fortuneSlips != null && (
+                    <span className="absolute bottom-2 left-2 flex items-center gap-1 bg-white/90 backdrop-blur-sm border border-[#E7E5E4] text-[#0D0C0B] text-[10px] font-semibold px-1.5 py-0.5 rounded-md">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src="https://cdn.axieinfinity.com/marketplace-website/asset-icon/fortune-slip.png"
+                        alt=""
+                        width={12}
+                        height={12}
+                      />
+                      {listing.fortuneSlips}
                     </span>
                   )}
                 </div>

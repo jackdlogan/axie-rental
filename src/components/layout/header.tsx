@@ -30,7 +30,8 @@ export function Header() {
     : "";
 
   const mobileNavLinks = [
-    { href: "/marketplace", label: "Marketplace" },
+    { href: "/marketplace", label: "Rent an Axie" },
+    { href: "/marketplace/teams", label: "Rent a Team" },
     ...(isLoggedIn
       ? [
           { href: "/dashboard", label: "Dashboard" },
@@ -54,11 +55,11 @@ export function Header() {
             <span className="font-bold text-white text-lg tracking-tight">AxieRent</span>
           </Link>
           <nav className="hidden md:flex items-center gap-6">
-            <Link
-              href="/marketplace"
-              className="text-sm text-[#A8A29E] hover:text-white transition-colors duration-150"
-            >
-              Marketplace
+            <Link href="/marketplace" className="text-sm text-[#A8A29E] hover:text-white transition-colors duration-150">
+              Rent an Axie
+            </Link>
+            <Link href="/marketplace/teams" className="text-sm text-[#A8A29E] hover:text-white transition-colors duration-150">
+              Rent a Team
             </Link>
             {isLoggedIn && (
               <Link

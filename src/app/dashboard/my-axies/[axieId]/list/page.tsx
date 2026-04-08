@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState } from "react";
 import { toast } from "sonner";
+import { AxieClassIcon } from "@/components/axie/axie-class-icon";
 
 interface Axie {
   id: string;
@@ -104,7 +105,10 @@ export default function CreateListingPage() {
                 {axie?.name || `Axie #${axieId}`}
               </h2>
               {axie?.class && (
-                <p className="text-muted-foreground">{axie.class}</p>
+                <p className="text-muted-foreground flex items-center gap-1">
+                  <AxieClassIcon axieClass={axie.class} size={14} />
+                  {axie.class}
+                </p>
               )}
             </div>
           </CardContent>

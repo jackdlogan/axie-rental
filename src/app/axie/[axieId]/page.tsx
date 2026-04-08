@@ -11,6 +11,8 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState } from "react";
 import { AxieImage } from "@/components/axie/axie-image";
+import { AxieClassIcon } from "@/components/axie/axie-class-icon";
+import Link from "next/link";
 import { RentButton } from "@/components/rental/rent-button";
 
 interface AxieDetail {
@@ -30,6 +32,7 @@ interface ListingDetail {
   minDays: number;
   maxDays: number;
   status: string;
+  pendingOfferCount: number;
   owner: { walletAddress: string };
 }
 
@@ -96,7 +99,23 @@ export default function AxieDetailPage() {
             <h1 className="text-3xl font-bold mb-2">
               {axie?.name || `Axie #${axieId}`}
             </h1>
-            {axie?.class && <Badge>{axie.class}</Badge>}
+            <div className="flex items-center gap-2 flex-wrap">
+              {axie?.class && (
+                <Badge className="flex items-center gap-1">
+                  <AxieClassIcon axieClass={axie.class} size={14} />
+                  {axie.class}
+                </Badge>
+              )}
+              <Link
+                href={`https://app.axieinfinity.com/marketplace/axies/${axieId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-[#78716C] hover:text-[#F97316] transition-colors duration-150 flex items-center gap-1"
+              >
+                View on Marketplace
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </Link>
+            </div>
           </div>
 
           {axie?.stats && (
@@ -178,6 +197,14 @@ export default function AxieDetailPage() {
                     {listing.minDays}–{listing.maxDays} days
                   </span>
                 </div>
+                {listing.pendingOfferCount > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Pending offers</span>
+                    <span className="font-semibold text-[#F97316]">
+                      {listing.pendingOfferCount} offer{listing.pendingOfferCount !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                )}
                 <Separator />
                 <div className="space-y-2">
                   <Label htmlFor="days">Rental Days</Label>

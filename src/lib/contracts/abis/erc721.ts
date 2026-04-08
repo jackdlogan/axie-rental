@@ -1,6 +1,13 @@
 export const erc721Abi = [
   {
     type: "function",
+    name: "ownerOf",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
     name: "isApprovedForAll",
     inputs: [
       { name: "owner", type: "address" },

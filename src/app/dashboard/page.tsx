@@ -104,7 +104,8 @@ export default function DashboardPage() {
           <div>
             <p className="font-bold text-base">Action Required</p>
             <p className="text-sm text-white/80 mt-0.5">
-              You have {needDelegation.length + needRelease.length} rental{needDelegation.length + needRelease.length !== 1 ? "s" : ""} waiting for your attention.
+              {needDelegation.length > 0 && `${needDelegation.length} offer${needDelegation.length !== 1 ? "s" : ""} waiting for your decision. `}
+              {needRelease.length > 0 && `${needRelease.length} delegation${needRelease.length !== 1 ? "s" : ""} to release.`}
             </p>
           </div>
           <Link
@@ -149,7 +150,7 @@ export default function DashboardPage() {
                           "text-xs font-semibold uppercase tracking-wide",
                           urgent ? "text-destructive" : "text-[#F97316]"
                         )}>
-                          Delegate Axie
+                          Offer Received
                         </span>
                       </div>
                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#A8A29E] group-hover:translate-x-0.5 transition-transform shrink-0 mt-0.5">
@@ -172,7 +173,7 @@ export default function DashboardPage() {
                       className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-[#F97316] text-white font-semibold text-xs hover:bg-[#EA6C0A] transition-colors"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      Delegate Now
+                      Review &amp; Accept
                     </Link>
                   </div>
                 </Link>
@@ -247,7 +248,7 @@ export default function DashboardPage() {
           {[
             { title: "Active Listings", value: activeListings, href: "/dashboard/my-listings" },
             { title: "Active Rentals (as borrower)", value: activeRentals, href: "/dashboard/my-rentals" },
-            { title: "Pending Delegations", value: needDelegation.length, href: "/dashboard/pending-rentals" },
+            { title: "Pending Offers", value: needDelegation.length, href: "/dashboard/pending-rentals" },
             { title: "Total Listings", value: totalListings, href: "/dashboard/my-listings" },
           ].map((card) => (
             <Link key={card.title} href={card.href}>

@@ -7,25 +7,25 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { erc20Abi, rentalEscrowAbi, CONTRACTS } from "@/lib/contracts";
 
-interface RentButtonProps {
-  listingId: string;
+interface CompletePaymentButtonProps {
+  rentalId: string;
   axieId: string;
   ownerAddress: string;
   rentalDays: number;
-  totalPrice: string; // decimal string, e.g. "12.50"
+  totalPrice: string;
   onSuccess?: () => void;
 }
 
-type Step = "idle" | "creating" | "approving" | "awaiting-approve" | "depositing" | "done";
+type Step = "idle" | "approving" | "awaiting-approve" | "depositing" | "done";
 
-export function RentButton({
-  listingId,
+export function CompletePaymentButton({
+  rentalId,
   axieId,
   ownerAddress,
   rentalDays,
   totalPrice,
   onSuccess,
-}: RentButtonProps) {
+}: CompletePaymentButtonProps) {
   const [step, setStep] = useState<Step>("idle");
   const { address } = useAccount();
   const { writeContractAsync } = useWriteContract();
@@ -33,13 +33,9 @@ export function RentButton({
 
   const isLoading = step !== "idle" && step !== "done";
 
-  const handleRent = async () => {
-    if (!address) {
+  const handlePay = async () => {
+    if (!address || !publicClient) {
       toast.error("Connect your wallet first");
-      return;
-    }
-    if (!publicClient) {
-      toast.error("Wallet not connected");
       return;
     }
 
@@ -57,7 +53,7 @@ export function RentButton({
       if (balance < amountWei) {
         const have = formatUnits(balance, 6);
         toast.error(`Insufficient USDC balance`, {
-          description: `You have ${parseFloat(have).toFixed(2)} USDC but need ${totalPrice} USDC. Bridge USDC to Ronin or swap on Katana DEX.`,
+          description: `You have ${parseFloat(have).toFixed(2)} USDC but need ${totalPrice} USDC.`,
           action: {
             label: "Get USDC",
             onClick: () => window.open("https://app.roninchain.com/bridge", "_blank"),
@@ -67,34 +63,12 @@ export function RentButton({
         return;
       }
     } catch {
-      // If balance check fails, continue — the deposit tx itself will revert with a clear error
-    }
-
-    // Step 1: Create rental in DB
-    setStep("creating");
-    let rentalId: string;
-    try {
-      const res = await fetch("/api/rentals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ listingId, rentalDays }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || "Failed to create rental");
-        setStep("idle");
-        return;
-      }
-      rentalId = data.rental.id;
-    } catch {
-      toast.error("Failed to create rental");
-      setStep("idle");
-      return;
+      // Continue — deposit tx will revert with a clear error if balance is insufficient
     }
 
     const rentalIdBytes32 = keccak256(toBytes(rentalId));
 
-    // Step 2: Approve USDC
+    // Step 1: Approve USDC
     setStep("approving");
     let approveTxHash: `0x${string}`;
     try {
@@ -111,7 +85,7 @@ export function RentButton({
       return;
     }
 
-    // Step 3: Wait for approval to be mined before depositing
+    // Step 2: Wait for approval
     setStep("awaiting-approve");
     try {
       await publicClient.waitForTransactionReceipt({ hash: approveTxHash });
@@ -121,7 +95,7 @@ export function RentButton({
       return;
     }
 
-    // Step 4: Deposit to escrow
+    // Step 3: Deposit to escrow
     setStep("depositing");
     try {
       const depositTx = await writeContractAsync({
@@ -147,10 +121,9 @@ export function RentButton({
       });
 
       if (!patchRes.ok) {
-        // Deposit is on-chain — funds are safe. Cron will pick it up within minutes.
-        toast.warning("Offer deposited on-chain but status update failed. Your funds are safe — status will sync automatically within a few minutes.");
+        toast.warning("Deposited on-chain but status update failed. Your funds are safe — status will sync automatically.");
       } else {
-        toast.success("Offer submitted! The owner will review all offers and delegate to their chosen borrower.");
+        toast.success("Offer submitted! Awaiting owner decision.");
       }
 
       setStep("done");
@@ -163,20 +136,19 @@ export function RentButton({
   };
 
   const label: Record<Step, string> = {
-    idle: `Place Offer — ${totalPrice} USDC`,
-    creating: "Creating offer...",
+    idle: "Complete Payment",
     approving: "Approve USDC in wallet...",
     "awaiting-approve": "Waiting for approval...",
     depositing: "Confirm deposit in wallet...",
-    done: "Offer submitted!",
+    done: "Paid!",
   };
 
   return (
     <Button
-      className="w-full cursor-pointer"
-      size="lg"
-      onClick={handleRent}
+      size="sm"
+      onClick={handlePay}
       disabled={isLoading || step === "done"}
+      className="cursor-pointer"
     >
       {label[step]}
     </Button>

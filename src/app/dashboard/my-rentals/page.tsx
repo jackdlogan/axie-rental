@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AxieImage } from "@/components/axie/axie-image";
 import { ClaimRefundButton } from "@/components/rental/claim-refund-button";
+import { ClaimPartialRefundButton } from "@/components/rental/claim-partial-refund-button";
+import { CompletePaymentButton } from "@/components/rental/complete-payment-button";
 import { TxLink } from "@/components/ui/tx-link";
 import { toast } from "sonner";
 
@@ -28,6 +30,50 @@ interface Rental {
     pricePerDay: string;
   };
   owner: { walletAddress: string };
+}
+
+function RejectedRefundAction({
+  rentalId,
+  delegationDeadline,
+}: {
+  rentalId: string;
+  delegationDeadline: string | null;
+}) {
+  const isPastDeadline = delegationDeadline && new Date(delegationDeadline) < new Date();
+
+  if (isPastDeadline) {
+    return (
+      <ClaimRefundButton
+        rentalId={rentalId}
+        delegationDeadline={delegationDeadline}
+        forceShow
+      />
+    );
+  }
+
+  // Deadline hasn't passed yet — owner should refund automatically, show fallback countdown
+  const msLeft = delegationDeadline
+    ? new Date(delegationDeadline).getTime() - Date.now()
+    : null;
+  const hoursLeft = msLeft ? Math.floor(msLeft / 3600000) : null;
+  const minsLeft = msLeft ? Math.floor((msLeft % 3600000) / 60000) : null;
+  const countdownLabel =
+    hoursLeft !== null && minsLeft !== null
+      ? hoursLeft >= 1
+        ? `${hoursLeft}h ${minsLeft}m`
+        : `${minsLeft}m`
+      : "soon";
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <span className="text-xs text-muted-foreground text-right">
+        Refund pending from owner
+      </span>
+      <span className="text-xs text-muted-foreground text-right">
+        Fallback in {countdownLabel}
+      </span>
+    </div>
+  );
 }
 
 const STATUS_VARIANT: Record<
@@ -67,7 +113,7 @@ export default function MyRentalsPage() {
       if (!res.ok) throw new Error("Failed to cancel");
     },
     onSuccess: () => {
-      toast.success("Rental cancelled — listing is now available again.");
+      toast.success("Offer cancelled.");
       qc.invalidateQueries({ queryKey: ["my-rentals"] });
     },
     onError: () => toast.error("Failed to cancel rental"),
@@ -110,7 +156,11 @@ export default function MyRentalsPage() {
                         `Axie #${rental.listing.axieId}`}
                     </h3>
                     <Badge variant={STATUS_VARIANT[rental.status]}>
-                      {rental.status.replace(/_/g, " ")}
+                      {rental.status === "REFUNDED" && !rental.refundTxHash
+                        ? "Offer Rejected"
+                        : rental.status === "PAYMENT_DEPOSITED"
+                        ? "Offer Pending"
+                        : rental.status.replace(/_/g, " ")}
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground">
@@ -138,19 +188,48 @@ export default function MyRentalsPage() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-2 shrink-0">
-                  {rental.status === "PENDING_PAYMENT" && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="cursor-pointer"
-                      onClick={() => cancelMutation.mutate(rental.id)}
-                      disabled={cancelMutation.isPending}
-                    >
-                      Cancel
-                    </Button>
+                  {rental.status === "PENDING_PAYMENT" && !rental.escrowTxHash && (
+                    <>
+                      <CompletePaymentButton
+                        rentalId={rental.id}
+                        axieId={rental.listing.axieId}
+                        ownerAddress={rental.owner.walletAddress}
+                        rentalDays={rental.rentalDays}
+                        totalPrice={rental.totalPrice}
+                        onSuccess={() => qc.invalidateQueries({ queryKey: ["my-rentals"] })}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="cursor-pointer"
+                        onClick={() => cancelMutation.mutate(rental.id)}
+                        disabled={cancelMutation.isPending}
+                      >
+                        Cancel
+                      </Button>
+                    </>
                   )}
                   {rental.status === "PAYMENT_DEPOSITED" && (
-                    <ClaimRefundButton
+                    <>
+                      <Badge variant="secondary" className="text-xs text-center">
+                        Awaiting owner decision
+                      </Badge>
+                      <ClaimRefundButton
+                        rentalId={rental.id}
+                        delegationDeadline={rental.delegationDeadline}
+                      />
+                    </>
+                  )}
+                  {rental.status === "DELEGATION_CONFIRMED" && rental.startDate && (
+                    <ClaimPartialRefundButton
+                      rentalId={rental.id}
+                      axieId={rental.listing.axieId}
+                      rentalStart={rental.startDate}
+                      rentalDays={rental.rentalDays}
+                    />
+                  )}
+                  {rental.status === "REFUNDED" && !rental.refundTxHash && (
+                    <RejectedRefundAction
                       rentalId={rental.id}
                       delegationDeadline={rental.delegationDeadline}
                     />

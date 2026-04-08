@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useWriteContract, usePublicClient, useAccount, useReadContract } from "wagmi";
 import { encodeAbiParameters, hexToBigInt, ContractFunctionRevertedError, BaseError } from "viem";
-import { axieDelegationAbi, erc721Abi, CONTRACTS } from "@/lib/contracts";
+import { axieDelegationAbi, erc721Abi, rentalEscrowAbi, CONTRACTS } from "@/lib/contracts";
+import { keccak256, toBytes } from "viem";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -17,6 +18,7 @@ interface DelegateButtonProps {
   borrowerAddress: string;
   rentalDays: number;
   rentalId: string;
+  rejectedRentalIds?: string[]; // other offers on same axie to refund immediately
 }
 
 export function DelegateButton({
@@ -24,6 +26,7 @@ export function DelegateButton({
   borrowerAddress,
   rentalDays,
   rentalId,
+  rejectedRentalIds = [],
 }: DelegateButtonProps) {
   const [isPending, setIsPending] = useState(false);
   const { writeContractAsync } = useWriteContract();
@@ -151,12 +154,49 @@ export function DelegateButton({
       const receipt = await publicClient!.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success") throw new Error("Delegation transaction was reverted on-chain");
 
-      // Update DB only after on-chain confirmation
+      // Step 5: notify escrow that delegation covers the full rental period
+      // This locks in the rental start time — owner can claim funds after the period ends
+      toast.info("Confirming delegation in escrow...");
+      const rentalIdBytes32 = keccak256(toBytes(rentalId));
+      const confirmHash = await writeContractAsync({
+        address: CONTRACTS.RENTAL_ESCROW,
+        abi: rentalEscrowAbi,
+        functionName: "confirmDelegation",
+        args: [rentalIdBytes32],
+      });
+      await publicClient!.waitForTransactionReceipt({ hash: confirmHash });
+
+      // Update DB only after both on-chain steps are confirmed
       await fetch(`/api/rentals/${rentalId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "DELEGATION_CONFIRMED", delegationTxHash: hash }),
       });
+
+      // Immediately refund all other offers on this axie
+      if (rejectedRentalIds.length > 0) {
+        toast.info(`Refunding ${rejectedRentalIds.length} rejected offer(s)...`);
+        for (const rejectedId of rejectedRentalIds) {
+          try {
+            const rejectedIdBytes32 = keccak256(toBytes(rejectedId));
+            const refundTx = await writeContractAsync({
+              address: CONTRACTS.RENTAL_ESCROW,
+              abi: rentalEscrowAbi,
+              functionName: "refundRejected",
+              args: [rejectedIdBytes32],
+            });
+            await publicClient!.waitForTransactionReceipt({ hash: refundTx });
+            await fetch(`/api/rentals/${rejectedId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: "REFUNDED", refundTxHash: refundTx }),
+            });
+          } catch {
+            // Non-fatal — borrower can still claimRefund() after 24h
+            toast.warning(`Could not immediately refund one offer — borrower can claim after 24h.`);
+          }
+        }
+      }
 
       qc.invalidateQueries({ queryKey: ["pending-rentals"] });
       toast.success("Axie delegated! Funds will be released to you.");
