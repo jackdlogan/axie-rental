@@ -60,6 +60,25 @@ export function TeamDelegateButton({
   const handleDelegate = async () => {
     setIsPending(true);
     try {
+      // Step 0: verify you still own all Axies before starting
+      const ownerChecks = await Promise.all(
+        axieIds.map((id) =>
+          publicClient!.readContract({
+            address: CONTRACTS.AXIE_NFT,
+            abi: erc721Abi,
+            functionName: "ownerOf",
+            args: [BigInt(id)],
+          })
+        )
+      );
+      const notOwned = axieIds.filter(
+        (_, i) => ownerChecks[i].toLowerCase() !== address?.toLowerCase()
+      );
+      if (notOwned.length > 0) {
+        toast.error(`You no longer own Axie #${notOwned[0]}. The listing may be stale.`);
+        return;
+      }
+
       // Step 1: approve NFT contract for delegation
       if (!isApproved) {
         toast.info("Approving delegation contract for your Axies...");

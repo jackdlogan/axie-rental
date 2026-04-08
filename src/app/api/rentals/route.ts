@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { rateLimit, getIp } from "@/lib/ratelimit";
+import { publicClient } from "@/lib/chain/client";
+import { erc721Abi, CONTRACTS } from "@/lib/contracts";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -90,6 +92,33 @@ export async function POST(req: NextRequest) {
   if (listing.owner.walletAddress === session.walletAddress) {
     return NextResponse.json({ error: "Cannot rent your own axie" }, { status: 400 });
   }
+
+  // Re-verify on-chain ownership — the Axie may have been transferred since listing
+  try {
+    const onChainOwner = await publicClient.readContract({
+      address: CONTRACTS.AXIE_NFT,
+      abi: erc721Abi,
+      functionName: "ownerOf",
+      args: [BigInt(listing.axieId)],
+    });
+    if (onChainOwner.toLowerCase() !== listing.owner.walletAddress.toLowerCase()) {
+      // Owner no longer holds the Axie — cancel the stale listing
+      await prisma.listing.update({
+        where: { id: listing.id },
+        data: { status: "CANCELLED" },
+      });
+      return NextResponse.json(
+        { error: "Listing is no longer valid — the owner no longer holds this Axie" },
+        { status: 410 }
+      );
+    }
+  } catch {
+    return NextResponse.json(
+      { error: "Could not verify Axie ownership on-chain" },
+      { status: 502 }
+    );
+  }
+
   if (rentalDays < listing.minDays || rentalDays > listing.maxDays) {
     return NextResponse.json({ error: "Invalid rental duration" }, { status: 400 });
   }

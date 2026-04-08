@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { rateLimit, getIp } from "@/lib/ratelimit";
+import { publicClient } from "@/lib/chain/client";
+import { erc721Abi, CONTRACTS } from "@/lib/contracts";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -78,7 +80,7 @@ export async function POST(req: NextRequest) {
 
   const listing = await prisma.teamListing.findUnique({
     where: { id: teamListingId },
-    include: { owner: true },
+    include: { owner: true, axies: { select: { axieId: true } } },
   });
   if (!listing) {
     return NextResponse.json({ error: "Listing not found" }, { status: 404 });
@@ -89,6 +91,39 @@ export async function POST(req: NextRequest) {
   if (listing.owner.walletAddress === session.walletAddress) {
     return NextResponse.json({ error: "Cannot rent your own team" }, { status: 400 });
   }
+
+  // Re-verify on-chain ownership for all Axies in the team
+  try {
+    const ownerChecks = await Promise.all(
+      listing.axies.map((axie) =>
+        publicClient.readContract({
+          address: CONTRACTS.AXIE_NFT,
+          abi: erc721Abi,
+          functionName: "ownerOf",
+          args: [BigInt(axie.axieId)],
+        })
+      )
+    );
+    const notOwned = listing.axies.filter(
+      (_, i) => ownerChecks[i].toLowerCase() !== listing.owner.walletAddress.toLowerCase()
+    );
+    if (notOwned.length > 0) {
+      await prisma.teamListing.update({
+        where: { id: listing.id },
+        data: { status: "CANCELLED" },
+      });
+      return NextResponse.json(
+        { error: `Listing invalid — owner no longer holds Axie #${notOwned[0].axieId}` },
+        { status: 410 }
+      );
+    }
+  } catch {
+    return NextResponse.json(
+      { error: "Could not verify Axie ownership on-chain" },
+      { status: 502 }
+    );
+  }
+
   if (rentalDays < listing.minDays || rentalDays > listing.maxDays) {
     return NextResponse.json({ error: "Invalid rental duration" }, { status: 400 });
   }

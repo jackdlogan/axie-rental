@@ -66,6 +66,18 @@ export function DelegateButton({
   const handleDelegate = async () => {
     setIsPending(true);
     try {
+      // Step 0: verify you still own this Axie before starting the multi-step flow
+      const currentOwner = await publicClient!.readContract({
+        address: CONTRACTS.AXIE_NFT,
+        abi: erc721Abi,
+        functionName: "ownerOf",
+        args: [BigInt(axieId)],
+      });
+      if (currentOwner.toLowerCase() !== address?.toLowerCase()) {
+        toast.error("You no longer own this Axie. The listing may be stale.");
+        return;
+      }
+
       // Step 1: approve NFT contract for delegation (ERC721 setApprovalForAll)
       if (!isApproved) {
         toast.info("Approving delegation contract for your Axies...");

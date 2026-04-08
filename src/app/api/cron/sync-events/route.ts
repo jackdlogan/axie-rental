@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createPublicClient, http, parseAbiItem } from "viem";
 import { prisma } from "@/lib/db";
-import { CONTRACTS } from "@/lib/contracts";
+import { CONTRACTS, erc721Abi } from "@/lib/contracts";
 import { activeChain } from "@/lib/wallet/config";
 
 const publicClient = createPublicClient({
@@ -259,6 +259,73 @@ async function runSync() {
       }
     }
 
+    // ── Stale listing cleanup — cancel listings where owner no longer holds the Axie ──
+    let staleListingsCancelled = 0;
+
+    const activeListings = await prisma.listing.findMany({
+      where: { status: "ACTIVE" },
+      select: { id: true, axieId: true, owner: { select: { walletAddress: true } } },
+    });
+
+    for (const listing of activeListings) {
+      try {
+        const onChainOwner = await publicClient.readContract({
+          address: CONTRACTS.AXIE_NFT,
+          abi: erc721Abi,
+          functionName: "ownerOf",
+          args: [BigInt(listing.axieId)],
+        });
+        if (onChainOwner.toLowerCase() !== listing.owner.walletAddress.toLowerCase()) {
+          await prisma.listing.update({
+            where: { id: listing.id },
+            data: { status: "CANCELLED" },
+          });
+          staleListingsCancelled++;
+        }
+      } catch {
+        // RPC failure for this axie — skip, will retry next cron run
+      }
+    }
+
+    // Also check active team listings
+    let staleTeamListingsCancelled = 0;
+
+    const activeTeamListings = await prisma.teamListing.findMany({
+      where: { status: "ACTIVE" },
+      select: {
+        id: true,
+        owner: { select: { walletAddress: true } },
+        axies: { select: { axieId: true } },
+      },
+    });
+
+    for (const teamListing of activeTeamListings) {
+      try {
+        const ownerChecks = await Promise.all(
+          teamListing.axies.map((axie) =>
+            publicClient.readContract({
+              address: CONTRACTS.AXIE_NFT,
+              abi: erc721Abi,
+              functionName: "ownerOf",
+              args: [BigInt(axie.axieId)],
+            })
+          )
+        );
+        const hasStale = ownerChecks.some(
+          (owner) => owner.toLowerCase() !== teamListing.owner.walletAddress.toLowerCase()
+        );
+        if (hasStale) {
+          await prisma.teamListing.update({
+            where: { id: teamListing.id },
+            data: { status: "CANCELLED" },
+          });
+          staleTeamListingsCancelled++;
+        }
+      } catch {
+        // skip — retry next run
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       synced: {
@@ -267,6 +334,8 @@ async function runSync() {
         releases: releasesProcessed,
         refunds: refundsProcessed,
         proRatedRefunds: proRatedProcessed,
+        staleListingsCancelled,
+        staleTeamListingsCancelled,
       },
       blockRange: { from: fromBlock.toString(), to: latest.toString() },
     });
