@@ -5,10 +5,20 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import Link from "next/link";
+import Image from "next/image";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AxieImage } from "@/components/axie/axie-image";
 import { AxieClassIcon } from "@/components/axie/axie-class-icon";
+
+function useDebouncedValue<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
 
 interface Listing {
   id: string;
@@ -33,13 +43,14 @@ export default function MarketplacePage() {
   const [classFilter, setClassFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [minSlips, setMinSlips] = useState<number | null>(null);
+  const debouncedSearch = useDebouncedValue(search, 300);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["listings", classFilter, search, minSlips],
+    queryKey: ["listings", classFilter, debouncedSearch, minSlips],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (classFilter !== "All") params.set("class", classFilter);
-      if (search) params.set("search", search);
+      if (debouncedSearch) params.set("search", debouncedSearch);
       if (minSlips !== null) params.set("minFortuneSlips", String(minSlips));
       const res = await fetch(`/api/listings?${params}`);
       return res.json() as Promise<{ listings: Listing[] }>;
@@ -86,8 +97,7 @@ export default function MarketplacePage() {
         </div>
         {/* Fortune slips filter */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <Image
             src="https://cdn.axieinfinity.com/marketplace-website/asset-icon/fortune-slip.png"
             alt="Fortune Slip"
             width={18}
@@ -154,8 +164,7 @@ export default function MarketplacePage() {
                   )}
                   {listing.fortuneSlips != null && (
                     <span className="absolute bottom-2 left-2 flex items-center gap-1 bg-white/90 backdrop-blur-sm border border-[#E7E5E4] text-[#0D0C0B] text-[10px] font-semibold px-1.5 py-0.5 rounded-md">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
+                      <Image
                         src="https://cdn.axieinfinity.com/marketplace-website/asset-icon/fortune-slip.png"
                         alt=""
                         width={12}

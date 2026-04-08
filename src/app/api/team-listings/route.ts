@@ -59,7 +59,11 @@ export async function GET(req: NextRequest) {
     pendingOfferCount: offerCountMap.get(l.id) ?? 0,
   }));
 
-  return NextResponse.json({ listings: listingsWithOffers });
+  return NextResponse.json({ listings: listingsWithOffers }, {
+    headers: {
+      "Cache-Control": "public, s-maxage=10, stale-while-revalidate=30",
+    },
+  });
 }
 
 export async function POST(req: NextRequest) {

@@ -6,8 +6,17 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AxieImage } from "@/components/axie/axie-image";
+
+function useDebouncedValue<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
 
 interface TeamListingAxie {
   axieId: string;
@@ -30,12 +39,13 @@ interface TeamListing {
 
 export default function TeamMarketplacePage() {
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["team-listings", search],
+    queryKey: ["team-listings", debouncedSearch],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (search) params.set("search", search);
+      if (debouncedSearch) params.set("search", debouncedSearch);
       const res = await fetch(`/api/team-listings?${params}`);
       return res.json() as Promise<{ listings: TeamListing[] }>;
     },

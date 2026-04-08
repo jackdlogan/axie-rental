@@ -22,7 +22,6 @@ export function AxieImage({
       width={width}
       height={height}
       className={className}
-      unoptimized
     />
   );
 }

@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  // Attach pending offer count to each listing
+  // Attach pending offer count to each listing (parallel query)
   const offerCounts = await prisma.rental.groupBy({
     by: ["listingId"],
     where: {
@@ -61,7 +61,11 @@ export async function GET(req: NextRequest) {
     pendingOfferCount: offerCountMap.get(l.id) ?? 0,
   }));
 
-  return NextResponse.json({ listings: listingsWithOffers });
+  return NextResponse.json({ listings: listingsWithOffers }, {
+    headers: {
+      "Cache-Control": "public, s-maxage=10, stale-while-revalidate=30",
+    },
+  });
 }
 
 export async function POST(req: NextRequest) {
