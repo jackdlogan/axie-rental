@@ -36,7 +36,7 @@ interface TeamListingDetail {
 
 export default function TeamDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { isLoggedIn, address } = useAuth();
+  const { isLoggedIn, walletAddress: address } = useAuth();
   const [rentalDays, setRentalDays] = useState(1);
 
   const { data, isLoading } = useQuery({
